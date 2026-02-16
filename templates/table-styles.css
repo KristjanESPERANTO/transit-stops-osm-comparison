@@ -81,3 +81,74 @@ th.sorted-desc::after {
     content: ' ↓';
     opacity: 1;
 }
+
+.report-controls {
+    margin: 8px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.report-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.summary-chip {
+    border: 1px solid #ddd;
+    background-color: #f2f2f2;
+    padding: 3px 6px;
+    font-size: 8pt;
+    cursor: pointer;
+}
+
+.summary-chip.active {
+    border: 1px solid #999;
+    background-color: #ddd;
+    font-weight: bold;
+}
+
+.report-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.report-filters input,
+.report-filters select,
+.report-filters button {
+    font-size: 8pt;
+    padding: 2px 4px;
+}
+
+.report-filters input[type="text"] {
+    min-width: 260px;
+}
+
+.report-filters input[type="number"] {
+    min-width: 130px;
+}
+
+.inline-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 8pt;
+}
+
+.visible-counter {
+    font-size: 8pt;
+    font-weight: bold;
+}
+
+.suspicious-badge {
+    display: inline-block;
+    border: 1px solid #ddd;
+    background-color: #f2f2f2;
+    padding: 0 3px;
+    margin: 1px;
+    font-size: 7pt;
+    white-space: nowrap;
+}

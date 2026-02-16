@@ -60,10 +60,10 @@ class StopsPerDistricLister():
             for row in rows:
                 yield dict(zip(columns, row))
 
-    def as_html_table(self, headers, rows_as_html):
+    def as_html_table(self, headers, rows_as_html, table_classes='sortable'):
         """ Adds the list of dicts as table """
         table_html = """
-            <table class="sortable">
+            <table class="{table_classes}">
                 <thead>
                     {header_cols}
                 </thead>
@@ -81,7 +81,7 @@ class StopsPerDistricLister():
             rows_html += row
             rows_html += '</tr>'
 
-        return table_html.format(header_cols=header_cols, rows_html=rows_html)
+        return table_html.format(header_cols=header_cols, rows_html=rows_html, table_classes=table_classes)
 
     def render_overview(self, outdir, metadata):
         df = pd.read_sql_query(self.MATCH_STATE_PER_REGION_QUERY,self.db)
@@ -179,6 +179,34 @@ class StopsPerDistricLister():
     def query(self, sql, params):
         return self.db.sql(sql, params=params).df()
 
+    def suspicious_reasons(self, stop):
+        reasons = []
+
+        if stop.get('match_state') == 'NO_MATCH':
+            reasons.append('kein_match')
+
+        if stop.get('match_state') == 'MATCHED_AMBIGUOUSLY':
+            reasons.append('ambig')
+
+        distance = stop.get('distance')
+        if distance is not None and distance >= 80:
+            reasons.append('dist>80m')
+
+        rating = stop.get('rating')
+        if rating is not None and rating < 0.6:
+            reasons.append('rating<0.6')
+
+        if not stop.get('osm_name'):
+            reasons.append('osm_ohne_name')
+
+        official_direction = stop.get('official_direction')
+        osm_direction = stop.get('osm_direction')
+        if official_direction and osm_direction:
+            if official_direction.strip().lower() != osm_direction.strip().lower():
+                reasons.append('richtung_ungleich')
+
+        return reasons
+
     def render_region_as_csv(self, region, outdir):
         df = self.query(self.STOPS_PER_REGION, params=[region+"%", region+"%"])
         if df is None:
@@ -188,7 +216,7 @@ class StopsPerDistricLister():
 
     def render_region(self, region, outdir, metadata):
         self.render_region_as_csv(region, outdir)
-        headers = ['Ortsteil', 'Haltestelle', 'Name (OSM)', 'DHID', 'Koordinaten','Mode','Abgleich-Status','Link zu gematchem Halt','Entfernung','Bewertung', 'Linien','Folgehalt (offiziell)', 'Folgehalt (OSM)']
+        headers = ['Ortsteil', 'Haltestelle', 'Name (OSM)', 'DHID', 'Koordinaten','Mode','Abgleich-Status','Auffällig','Link zu gematchem Halt','Entfernung','Bewertung', 'Linien','Folgehalt (offiziell)', 'Folgehalt (OSM)']
         rows_html = []
         rows_per_station = []
         last_city = ''
@@ -204,12 +232,15 @@ class StopsPerDistricLister():
 
             stop['osm_link'] = self.osm_match_link(stop['osm_id'])
             stop['lat_lon_link'] = self.lat_lon_link(stop['lat'], stop['lon'])
+            suspicious_reasons = self.suspicious_reasons(stop)
+            stop['suspicious_reasons'] = ''.join(['<span class="suspicious-badge">{}</span>'.format(reason) for reason in suspicious_reasons])
 
             stop_html = """<td>{osm_name}</td>
             <td>{globaleID}</td>
             <td>{lat_lon_link}</td>
             <td>{mode}</td>
             <td class="{match_state}">{match_state}</td>
+            <td>{suspicious_reasons}</td>
             <td>{osm_link}</td>
             <td>{distance}</td>
             <td>{rating}</td>
@@ -222,7 +253,7 @@ class StopsPerDistricLister():
 
         self.render_stops_of_station(rows_html, rows_per_station, last_city, last_station)
 
-        table_html = self.as_html_table(headers, rows_html)
+        table_html = self.as_html_table(headers, rows_html, table_classes='sortable region-report-table')
 
         rep = Report()
         district = self.districts.get(region)
@@ -232,7 +263,7 @@ class StopsPerDistricLister():
         rep.add_title("Versionen", level=2)
         rep.add_html(self.version_fragment(metadata))
         rep.add_html('<p>Alternative Ansicht: <a href="region_'+region.replace(':','')+'.csv">CSV</a>')
-        rep.add_html('<p><small><em>Hinweis: Durch Klick auf eine Spaltenüberschrift lässt sich die Tabelle sortieren. Beim ersten Sortieren wird die Gruppierung zusammengehöriger Haltepunkte aufgelöst, damit alle Zeilen korrekt sortiert werden können.</em></small></p>')
+        rep.add_html('<p><small><em>Hinweis: Die Tabelle unterstützt Sortierung, Status-Zusammenfassung und Filter. Für die Interaktionen wird die Gruppierung zusammengehöriger Haltepunkte in einzelne Zeilen aufgelöst.</em></small></p>')
         rep.add_html(table_html)
 
         filename = outdir+'/region_{region}.html'.format(region=region.replace(':',''))

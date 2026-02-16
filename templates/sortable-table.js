@@ -73,6 +73,202 @@ document.addEventListener('DOMContentLoaded', function() {
             rowspansExpanded = true;
         }
 
+        function parseNumber(cellText) {
+            const normalized = cellText.trim().replace(',', '.');
+            if (!/^-?\d+(\.\d+)?$/.test(normalized)) {
+                return null;
+            }
+            const value = parseFloat(normalized);
+            return Number.isNaN(value) ? null : value;
+        }
+
+        function setupRegionReportControls() {
+            if (!table.classList.contains('region-report-table')) {
+                return;
+            }
+
+            expandRowspans();
+
+            const headerTexts = Array.from(headers).map(h => h.textContent.trim());
+            const idx = {
+                status: headerTexts.indexOf('Abgleich-Status'),
+                mode: headerTexts.indexOf('Mode'),
+                distance: headerTexts.indexOf('Entfernung'),
+                rating: headerTexts.indexOf('Bewertung'),
+                suspicious: headerTexts.indexOf('Auffällig')
+            };
+
+            if (idx.status === -1 || idx.mode === -1 || idx.distance === -1 || idx.rating === -1 || idx.suspicious === -1) {
+                return;
+            }
+
+            const controls = document.createElement('div');
+            controls.className = 'report-controls';
+
+            const summaryContainer = document.createElement('div');
+            summaryContainer.className = 'report-summary';
+
+            const filterBar = document.createElement('div');
+            filterBar.className = 'report-filters';
+
+            const textFilter = document.createElement('input');
+            textFilter.type = 'text';
+            textFilter.placeholder = 'Suche (Name, DHID, Linien, Richtung ...)';
+
+            const modeFilter = document.createElement('select');
+            const allModesOption = document.createElement('option');
+            allModesOption.value = '';
+            allModesOption.textContent = 'Alle Modi';
+            modeFilter.appendChild(allModesOption);
+
+            const minDistanceFilter = document.createElement('input');
+            minDistanceFilter.type = 'number';
+            minDistanceFilter.step = '0.1';
+            minDistanceFilter.min = '0';
+            minDistanceFilter.placeholder = 'Min Distanz (m)';
+
+            const maxRatingFilter = document.createElement('input');
+            maxRatingFilter.type = 'number';
+            maxRatingFilter.step = '0.01';
+            maxRatingFilter.min = '0';
+            maxRatingFilter.max = '1';
+            maxRatingFilter.placeholder = 'Max Rating';
+
+            const suspiciousLabel = document.createElement('label');
+            suspiciousLabel.className = 'inline-label';
+            const suspiciousOnlyFilter = document.createElement('input');
+            suspiciousOnlyFilter.type = 'checkbox';
+            suspiciousLabel.appendChild(suspiciousOnlyFilter);
+            suspiciousLabel.appendChild(document.createTextNode(' nur Auffällige'));
+
+            const resetButton = document.createElement('button');
+            resetButton.type = 'button';
+            resetButton.textContent = 'Filter zurücksetzen';
+
+            const visibleCounter = document.createElement('span');
+            visibleCounter.className = 'visible-counter';
+
+            filterBar.appendChild(textFilter);
+            filterBar.appendChild(modeFilter);
+            filterBar.appendChild(minDistanceFilter);
+            filterBar.appendChild(maxRatingFilter);
+            filterBar.appendChild(suspiciousLabel);
+            filterBar.appendChild(resetButton);
+            filterBar.appendChild(visibleCounter);
+
+            controls.appendChild(summaryContainer);
+            controls.appendChild(filterBar);
+            table.parentNode.insertBefore(controls, table);
+
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            const modeValues = new Set();
+            const statusCounts = {};
+            rows.forEach(row => {
+                const cells = row.cells;
+                const mode = (cells[idx.mode] ? cells[idx.mode].textContent : '').trim();
+                const status = (cells[idx.status] ? cells[idx.status].textContent : '').trim();
+
+                if (mode) {
+                    modeValues.add(mode);
+                }
+                if (status) {
+                    statusCounts[status] = (statusCounts[status] || 0) + 1;
+                }
+            });
+
+            Array.from(modeValues).sort((a, b) => a.localeCompare(b, 'de')).forEach(mode => {
+                const option = document.createElement('option');
+                option.value = mode;
+                option.textContent = mode;
+                modeFilter.appendChild(option);
+            });
+
+            let selectedState = '';
+            const stateButtons = [];
+
+            function updateStateButtonStyles() {
+                stateButtons.forEach(btn => {
+                    const isActive = btn.dataset.state === selectedState || (btn.dataset.state === '__ALL__' && selectedState === '');
+                    btn.classList.toggle('active', isActive);
+                });
+            }
+
+            function createStateButton(stateLabel, stateValue, count) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'summary-chip';
+                button.dataset.state = stateValue;
+                button.textContent = stateLabel + ' (' + count + ')';
+                button.addEventListener('click', function() {
+                    selectedState = (stateValue === '__ALL__') ? '' : stateValue;
+                    updateStateButtonStyles();
+                    applyFilters();
+                });
+                stateButtons.push(button);
+                summaryContainer.appendChild(button);
+            }
+
+            createStateButton('Alle', '__ALL__', rows.length);
+            Object.keys(statusCounts)
+                .sort((a, b) => statusCounts[b] - statusCounts[a])
+                .forEach(status => createStateButton(status, status, statusCounts[status]));
+
+            updateStateButtonStyles();
+
+            function applyFilters() {
+                const query = textFilter.value.trim().toLowerCase();
+                const selectedMode = modeFilter.value;
+                const minDistance = minDistanceFilter.value === '' ? null : parseFloat(minDistanceFilter.value);
+                const maxRating = maxRatingFilter.value === '' ? null : parseFloat(maxRatingFilter.value);
+                const suspiciousOnly = suspiciousOnlyFilter.checked;
+
+                let visibleCount = 0;
+                rows.forEach(row => {
+                    const cells = row.cells;
+                    const status = (cells[idx.status] ? cells[idx.status].textContent : '').trim();
+                    const mode = (cells[idx.mode] ? cells[idx.mode].textContent : '').trim();
+                    const distance = parseNumber(cells[idx.distance] ? cells[idx.distance].textContent : '');
+                    const rating = parseNumber(cells[idx.rating] ? cells[idx.rating].textContent : '');
+                    const suspicious = cells[idx.suspicious] && cells[idx.suspicious].querySelectorAll('.suspicious-badge').length > 0;
+
+                    const stateMatch = !selectedState || status === selectedState;
+                    const modeMatch = !selectedMode || mode === selectedMode;
+                    const distanceMatch = minDistance === null || (distance !== null && distance >= minDistance);
+                    const ratingMatch = maxRating === null || (rating !== null && rating <= maxRating);
+                    const suspiciousMatch = !suspiciousOnly || suspicious;
+                    const textMatch = !query || row.textContent.toLowerCase().includes(query);
+
+                    const visible = stateMatch && modeMatch && distanceMatch && ratingMatch && suspiciousMatch && textMatch;
+                    row.style.display = visible ? '' : 'none';
+                    if (visible) {
+                        visibleCount += 1;
+                    }
+                });
+
+                visibleCounter.textContent = 'Treffer: ' + visibleCount + ' / ' + rows.length;
+            }
+
+            [textFilter, modeFilter, minDistanceFilter, maxRatingFilter, suspiciousOnlyFilter].forEach(control => {
+                control.addEventListener('input', applyFilters);
+                control.addEventListener('change', applyFilters);
+            });
+
+            resetButton.addEventListener('click', function() {
+                selectedState = '';
+                textFilter.value = '';
+                modeFilter.value = '';
+                minDistanceFilter.value = '';
+                maxRatingFilter.value = '';
+                suspiciousOnlyFilter.checked = false;
+                updateStateButtonStyles();
+                applyFilters();
+            });
+
+            applyFilters();
+        }
+
+        setupRegionReportControls();
+
         headers.forEach((header, colIndex) => {
             header.classList.add('sortable');
             header.addEventListener('click', () => {
